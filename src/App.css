@@ -1,0 +1,61 @@
+@import url('https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&family=IBM+Plex+Sans:wght@300;400;500&display=swap');
+
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+:root {
+  --bg-0: #0c0c0c;
+  --bg-1: #141414;
+  --bg-2: #1c1c1c;
+  --bg-3: #242424;
+  --border: #2a2a2a;
+  --border-hi: #3a3a3a;
+  --text-0: #e8e8e8;
+  --text-1: #a0a0a0;
+  --text-2: #585858;
+  --accent: #e8a030;
+  --accent-dim: #7a5018;
+  --green: #4a9e6a;
+  --red: #b85050;
+  --yellow: #c8a040;
+  --blue: #4a80b8;
+  --font-ui: 'IBM Plex Sans', sans-serif;
+  --font-mono: 'IBM Plex Mono', monospace;
+}
+
+html, body, #root {
+  position: fixed;
+  inset: 0;
+  overflow: hidden;
+  overscroll-behavior: none;
+  background: var(--bg-0);
+  color: var(--text-0);
+  font-family: var(--font-ui);
+  font-size: 15px;
+  line-height: 1.5;
+  -webkit-font-smoothing: antialiased;
+}
+
+* {
+  user-select: none;
+  -webkit-user-select: none;
+}
+
+::-webkit-scrollbar { width: 6px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb { background: var(--border-hi); border-radius: 3px; }
+
+button {
+  font-family: var(--font-ui);
+  font-size: 13px;
+  cursor: pointer;
+  border: none;
+  outline: none;
+  transition: background 0.15s, opacity 0.15s;
+}
+
+button:active {
+  opacity: 0.6;
+  transform: scale(0.96);
+}
+
+button:disabled { opacity: 0.4; cursor: not-allowed; }
