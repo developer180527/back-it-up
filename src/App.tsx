@@ -85,10 +85,10 @@ export default function App() {
         const deleted  = changed.filter(e => e.status === "deleted").length;
         const renamed  = changed.filter(e => e.status === "renamed").length;
         const parts = [
-          added    > 0 ? `${added} added`       : "",
-          modified > 0 ? `${modified} modified`  : "",
-          deleted  > 0 ? `${deleted} deleted`    : "",
-          renamed  > 0 ? `${renamed} renamed`    : "",
+          added    > 0 ? `${added} added`      : "",
+          modified > 0 ? `${modified} modified` : "",
+          deleted  > 0 ? `${deleted} deleted`   : "",
+          renamed  > 0 ? `${renamed} renamed`   : "",
         ].filter(Boolean).join(" · ");
         setStatus(`Scan complete — ${parts}`);
       }
@@ -166,7 +166,14 @@ export default function App() {
         onScan={handleScan}
       />
 
-      <div style={{ flex: 1, display: "flex", flexDirection: "column", overflow: "hidden" }}>
+      {/* main content col */}
+      <div style={{
+        flex: 1,
+        display: "flex",
+        flexDirection: "column",
+        overflow: "hidden",
+        minWidth: 0,
+      }}>
 
         {/* topbar */}
         <div style={{
@@ -176,8 +183,10 @@ export default function App() {
           display: "flex",
           alignItems: "center",
           padding: "0 16px",
-          gap: 12,
+          gap: 8,
           flexShrink: 0,
+          overflow: "hidden",
+          minWidth: 0,
         }}>
           <span style={{
             fontFamily: "var(--font-mono)",
@@ -185,14 +194,24 @@ export default function App() {
             fontWeight: 500,
             color: "var(--accent)",
             letterSpacing: "0.04em",
+            flexShrink: 0,
           }}>
             back-it-up
           </span>
 
           {selectedProfile && (
             <>
-              <span style={{ color: "var(--border-hi)", fontSize: 14 }}>/</span>
-              <span style={{ fontFamily: "var(--font-mono)", fontSize: 12, color: "var(--text-1)" }}>
+              <span style={{ color: "var(--border-hi)", fontSize: 14, flexShrink: 0 }}>/</span>
+              <span style={{
+                fontFamily: "var(--font-mono)",
+                fontSize: 12,
+                color: "var(--text-1)",
+                flexShrink: 1,
+                overflow: "hidden",
+                textOverflow: "ellipsis",
+                whiteSpace: "nowrap",
+                minWidth: 0,
+              }}>
                 {selectedProfile.name}
               </span>
             </>
@@ -200,15 +219,31 @@ export default function App() {
 
           {selectedDrive && (
             <>
-              <span style={{ color: "var(--border-hi)", fontSize: 14 }}>/</span>
-              <span style={{ fontFamily: "var(--font-mono)", fontSize: 12, color: "var(--text-2)" }}>
+              <span style={{ color: "var(--border-hi)", fontSize: 14, flexShrink: 0 }}>/</span>
+              <span style={{
+                fontFamily: "var(--font-mono)",
+                fontSize: 12,
+                color: "var(--text-2)",
+                flexShrink: 1,
+                overflow: "hidden",
+                textOverflow: "ellipsis",
+                whiteSpace: "nowrap",
+                minWidth: 0,
+              }}>
                 {selectedDrive.name}
               </span>
             </>
           )}
 
           {/* status + cancel */}
-          <div style={{ marginLeft: "auto", display: "flex", alignItems: "center", gap: 10 }}>
+          <div style={{
+            marginLeft: "auto",
+            display: "flex",
+            alignItems: "center",
+            gap: 10,
+            flexShrink: 0,
+            minWidth: 0,
+          }}>
             {isScanning && (
               <button
                 onClick={async () => {
@@ -225,6 +260,8 @@ export default function App() {
                   borderRadius: 3,
                   border: "1px solid var(--red)",
                   opacity: 0.7,
+                  whiteSpace: "nowrap",
+                  flexShrink: 0,
                 }}
               >
                 cancel scan
@@ -238,7 +275,7 @@ export default function App() {
                    : error                 ? "var(--red)"
                    : isScanning            ? "var(--yellow)"
                    : "var(--text-2)",
-              maxWidth: 500,
+              maxWidth: 380,
               whiteSpace: "nowrap",
               overflow: "hidden",
               textOverflow: "ellipsis",
@@ -262,15 +299,17 @@ export default function App() {
             justifyContent: "space-between",
             flexShrink: 0,
           }}>
-            {error}
+            <span style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", minWidth: 0 }}>
+              {error}
+            </span>
             <button
               onClick={() => setError(null)}
-              style={{ background: "none", color: "var(--red)", fontSize: 16 }}
+              style={{ background: "none", color: "var(--red)", fontSize: 16, flexShrink: 0, marginLeft: 8 }}
             >×</button>
           </div>
         )}
 
-        {/* empty state */}
+        {/* empty state: no drive */}
         {!selectedDrive && (
           <div style={{
             flex: 1,
@@ -285,6 +324,7 @@ export default function App() {
           </div>
         )}
 
+        {/* empty state: drive selected but no profile */}
         {selectedDrive && !selectedProfile && (
           <div style={{
             flex: 1,
@@ -300,6 +340,7 @@ export default function App() {
           </div>
         )}
 
+        {/* diff view */}
         {selectedProfile && view === "diff" && (
           <DiffViewer
             entries={diffEntries}
@@ -308,6 +349,7 @@ export default function App() {
           />
         )}
 
+        {/* backup progress / done */}
         {(view === "backing-up" || view === "done") && (
           <BackupProgress
             progress={progress}

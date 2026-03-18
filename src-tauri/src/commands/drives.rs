@@ -9,17 +9,25 @@ pub fn get_connected_drives() -> Vec<Drive> {
     for disk in disks.list() {
         let mount = disk.mount_point().to_string_lossy().to_string();
 
-        // skip internal system mounts
         #[cfg(target_os = "macos")]
-        if mount == "/" || mount.starts_with("/System") || mount.starts_with("/private") {
-            continue;
+        {
+            // only show drives mounted under /Volumes/, skip system mounts
+            if !mount.starts_with("/Volumes/") {
+                continue;
+            }
+            // skip macOS recovery and VM volumes
+            if mount.contains("Recovery") || mount.contains("VM") {
+                continue;
+            }
         }
+
         #[cfg(target_os = "windows")]
         if mount == "C:\\" {
             continue;
         }
+
         #[cfg(target_os = "linux")]
-        if mount == "/" || mount.starts_with("/boot") || mount.starts_with("/sys") {
+        if mount == "/" || mount.starts_with("/boot") || mount.starts_with("/sys") || mount.starts_with("/proc") {
             continue;
         }
 

@@ -5,7 +5,8 @@ use chrono::Utc;
 use crate::models::{DiffEntry, DiffResult, DiffStatus};
 use crate::db::init_db;
 use rusqlite::params;
-use std::sync::atomic::Ordering;
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::Arc;
 use tauri::State;
 use crate::ScanState;
 
@@ -15,48 +16,60 @@ fn hash_file(path: &Path) -> Option<String> {
 }
 
 fn should_exclude(relative_path: &str, rules: &[String]) -> bool {
-    rules.iter().any(|rule| {
-        relative_path.contains(rule.as_str())
-    })
+    rules.iter().any(|rule| relative_path.contains(rule.as_str()))
 }
 
 fn scan_directory(root: &Path, exclude_rules: &[String]) -> HashMap<String, (u64, u64, String)> {
-    // returns: relative_path -> (size, modified_secs, hash)
     let mut map = HashMap::new();
-
     for entry in WalkDir::new(root).min_depth(1).into_iter().filter_map(|e| e.ok()) {
         if !entry.file_type().is_file() { continue; }
-
-        let relative = entry.path()
-            .strip_prefix(root)
-            .unwrap()
-            .to_string_lossy()
-            .to_string();
-
+        let relative = entry.path().strip_prefix(root).unwrap().to_string_lossy().to_string();
         if should_exclude(&relative, exclude_rules) { continue; }
-
         let meta = match entry.metadata() { Ok(m) => m, Err(_) => continue };
         let size = meta.len();
         let modified = meta.modified().ok()
             .and_then(|t| t.duration_since(std::time::UNIX_EPOCH).ok())
             .map(|d| d.as_secs())
             .unwrap_or(0);
-
         let hash = hash_file(entry.path()).unwrap_or_default();
         map.insert(relative, (size, modified, hash));
     }
-
     map
 }
 
 #[tauri::command]
 pub fn cancel_scan(state: State<'_, ScanState>) {
-    state.cancelled.store(true, Ordering::SeqCst);
+    if let Ok(lock) = state.current.lock() {
+        if let Some(token) = lock.as_ref() {
+            token.store(true, Ordering::SeqCst);
+        }
+    }
 }
 
 #[tauri::command]
-pub fn compute_diff(
+pub async fn compute_diff(
     state: State<'_, ScanState>,
+    profile_id: i64,
+    pair_index: usize,
+    source_path: String,
+    dest_path: String,
+    exclude_rules: Vec<String>,
+) -> Result<DiffResult, String> {
+    let token = Arc::new(AtomicBool::new(false));
+    {
+        let mut lock = state.current.lock().map_err(|e| e.to_string())?;
+        *lock = Some(token.clone());
+    }
+
+    tokio::task::spawn_blocking(move || {
+        compute_diff_inner(token, profile_id, pair_index, source_path, dest_path, exclude_rules)
+    })
+    .await
+    .map_err(|e| e.to_string())?
+}
+
+fn compute_diff_inner(
+    cancelled: Arc<AtomicBool>,
     profile_id: i64,
     pair_index: usize,
     source_path: String,
@@ -70,7 +83,6 @@ pub fn compute_diff(
         return Err(format!("Source path does not exist: {}", source_path));
     }
 
-    // check if we have a stored index for this profile+pair
     let conn = init_db().map_err(|e| e.to_string())?;
     let index_count: i64 = conn.query_row(
         "SELECT COUNT(*) FROM file_index WHERE profile_id=?1 AND pair_index=?2",
@@ -80,21 +92,20 @@ pub fn compute_diff(
 
     let has_index = index_count > 0;
 
-    // fast path: destination empty or doesn't exist — everything is Added, no hashing needed
     let dest_is_empty = !dest_root.exists() || {
         let mut rd = std::fs::read_dir(dest_root).map_err(|e| e.to_string())?;
         rd.next().is_none()
     };
 
+    // fast path: dest empty and no index — mark everything as Added, no hashing
     if dest_is_empty && !has_index {
         let mut entries: Vec<DiffEntry> = Vec::new();
         let mut total_added = 0u64;
 
         for entry in WalkDir::new(source_root).min_depth(1).into_iter().filter_map(|e| e.ok()) {
-            if state.cancelled.load(Ordering::SeqCst) {
+            if cancelled.load(Ordering::SeqCst) {
                 return Err("Scan cancelled".to_string());
             }
-
             if !entry.file_type().is_file() { continue; }
             let relative = entry.path().strip_prefix(source_root).unwrap().to_string_lossy().to_string();
             if should_exclude(&relative, &exclude_rules) { continue; }
@@ -125,8 +136,7 @@ pub fn compute_diff(
         });
     }
 
-    // index path: we have a stored index — only scan source, compare against index
-    // never touch the drive directly
+    // index path: compare source against stored index — never read the drive
     if has_index {
         let mut indexed: HashMap<String, (u64, String)> = HashMap::new();
         {
@@ -146,8 +156,10 @@ pub fn compute_diff(
         let mut total_modified = 0u64;
         let mut seen_paths: std::collections::HashSet<String> = std::collections::HashSet::new();
 
-        // walk source only — no drive reads
         for entry in WalkDir::new(source_root).min_depth(1).into_iter().filter_map(|e| e.ok()) {
+            if cancelled.load(Ordering::SeqCst) {
+                return Err("Scan cancelled".to_string());
+            }
             if !entry.file_type().is_file() { continue; }
             let relative = entry.path().strip_prefix(source_root).unwrap().to_string_lossy().to_string();
             if should_exclude(&relative, &exclude_rules) { continue; }
@@ -162,7 +174,6 @@ pub fn compute_diff(
                 .unwrap_or_default().with_timezone(&Utc);
 
             if let Some((old_size, old_hash)) = indexed.get(&relative) {
-                // size changed — definitely modified, no need to hash
                 if size != *old_size {
                     let hash = hash_file(entry.path()).unwrap_or_default();
                     entries.push(DiffEntry {
@@ -176,7 +187,6 @@ pub fn compute_diff(
                     });
                     total_modified += size;
                 } else {
-                    // same size — check mtime before hashing
                     let stored_mtime: String = conn.query_row(
                         "SELECT modified_at FROM file_index WHERE profile_id=?1 AND pair_index=?2 AND relative_path=?3",
                         params![profile_id, pair_index as i64, &relative],
@@ -185,7 +195,6 @@ pub fn compute_diff(
 
                     let mtime_str = modified_at.to_rfc3339();
                     if mtime_str != stored_mtime {
-                        // mtime changed — hash to confirm
                         let hash = hash_file(entry.path()).unwrap_or_default();
                         if &hash != old_hash {
                             entries.push(DiffEntry {
@@ -200,10 +209,8 @@ pub fn compute_diff(
                             total_modified += size;
                         }
                     }
-                    // same size + same mtime = unchanged, skip
                 }
             } else {
-                // not in index = new file
                 entries.push(DiffEntry {
                     status: DiffStatus::Added,
                     relative_path: relative,
@@ -217,8 +224,10 @@ pub fn compute_diff(
             }
         }
 
-        // files in index but not in source = deleted
         for (rel, (size, _)) in &indexed {
+            if cancelled.load(Ordering::SeqCst) {
+                return Err("Scan cancelled".to_string());
+            }
             if !seen_paths.contains(rel) {
                 entries.push(DiffEntry {
                     status: DiffStatus::Deleted,
@@ -240,7 +249,7 @@ pub fn compute_diff(
         });
     }
 
-    // fallback: no index, dest has files — full hash both sides (first time only)
+    // fallback: no index, dest has files — full hash both sides
     let source_files = scan_directory(source_root, &exclude_rules);
     let dest_files = scan_directory(dest_root, &exclude_rules);
 
@@ -249,6 +258,9 @@ pub fn compute_diff(
     let mut total_modified = 0u64;
 
     for (rel, (size, modified_secs, hash)) in &source_files {
+        if cancelled.load(Ordering::SeqCst) {
+            return Err("Scan cancelled".to_string());
+        }
         let modified_at = chrono::DateTime::from_timestamp(*modified_secs as i64, 0)
             .unwrap_or_default().with_timezone(&Utc);
 
@@ -280,6 +292,9 @@ pub fn compute_diff(
     }
 
     for (rel, (size, _, _)) in &dest_files {
+        if cancelled.load(Ordering::SeqCst) {
+            return Err("Scan cancelled".to_string());
+        }
         if !source_files.contains_key(rel) {
             entries.push(DiffEntry {
                 status: DiffStatus::Deleted,

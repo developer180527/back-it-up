@@ -5,16 +5,16 @@ mod db;
 mod commands;
 
 use std::sync::atomic::AtomicBool;
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
 
 pub struct ScanState {
-    pub cancelled: Arc<AtomicBool>,
+    pub current: Mutex<Option<Arc<AtomicBool>>>,
 }
 
 
 fn main() {
     tauri::Builder::default()
-        .manage(ScanState { cancelled: Arc::new(AtomicBool::new(false)) })
+        .manage(ScanState { current: Mutex::new(None) })
         .plugin(tauri_plugin_dialog::init())
         .invoke_handler(tauri::generate_handler![
             commands::drives::get_connected_drives,

@@ -13,8 +13,9 @@ interface Props {
 const COMMON_EXCLUDES = ["node_modules", ".git", ".DS_Store", "__pycache__", "target", "dist", ".next"];
 
 export default function ProfileList({ selectedDrive, selectedProfile, onSelect, onScan }: Props) {
-  const [profiles, setProfiles] = useState<Profile[]>([]);
-  const [creating, setCreating] = useState(false);
+  const [profiles, setProfiles]             = useState<Profile[]>([]);
+  const [creating, setCreating]             = useState(false);
+  const [confirmDeleteId, setConfirmDeleteId] = useState<number | null>(null);
   const [form, setForm] = useState({
     name: "",
     source_path: "",
@@ -69,12 +70,11 @@ export default function ProfileList({ selectedDrive, selectedProfile, onSelect, 
     }
   };
 
-  const handleDelete = async (e: React.MouseEvent, id: number) => {
-    e.stopPropagation();
-    if (!confirm("Delete this profile?")) return;
+  const handleDelete = async (id: number) => {
     try {
       await invoke("delete_profile", { profileId: id });
       await loadProfiles();
+      setConfirmDeleteId(null);
     } catch (e) {
       console.error(e);
     }
@@ -143,6 +143,7 @@ export default function ProfileList({ selectedDrive, selectedProfile, onSelect, 
       display: "flex",
       flexDirection: "column",
       height: "100%",
+      position: "relative",
     }}>
       {/* header */}
       <div style={{
@@ -387,7 +388,7 @@ export default function ProfileList({ selectedDrive, selectedProfile, onSelect, 
                     scan
                   </button>
                   <button
-                    onClick={e => handleDelete(e, profile.id)}
+                    onClick={e => { e.stopPropagation(); setConfirmDeleteId(profile.id); }}
                     title="Delete profile"
                     style={{ background: "none", color: "var(--text-2)", fontSize: 14, padding: "0 2px" }}
                   >×</button>
@@ -414,6 +415,67 @@ export default function ProfileList({ selectedDrive, selectedProfile, onSelect, 
           );
         })}
       </div>
+
+      {/* in-app delete confirmation */}
+      {confirmDeleteId !== null && (
+        <div style={{
+          position: "absolute",
+          inset: 0,
+          background: "rgba(0,0,0,0.6)",
+          display: "flex",
+          alignItems: "center",
+          justifyContent: "center",
+          zIndex: 100,
+        }}>
+          <div style={{
+            background: "var(--bg-2)",
+            border: "1px solid var(--border-hi)",
+            borderRadius: 8,
+            padding: "20px 24px",
+            width: 220,
+            display: "flex",
+            flexDirection: "column",
+            gap: 16,
+          }}>
+            <div style={{ fontSize: 13, color: "var(--text-0)", fontWeight: 500 }}>
+              Delete profile?
+            </div>
+            <div style={{ fontSize: 11, color: "var(--text-2)", fontFamily: "var(--font-mono)" }}>
+              This cannot be undone.
+            </div>
+            <div style={{ display: "flex", gap: 8 }}>
+              <button
+                onClick={() => handleDelete(confirmDeleteId)}
+                style={{
+                  flex: 1,
+                  background: "var(--red)",
+                  color: "#fff",
+                  padding: "7px 0",
+                  borderRadius: 4,
+                  fontSize: 12,
+                  fontWeight: 500,
+                }}
+              >
+                Delete
+              </button>
+              <button
+                onClick={() => setConfirmDeleteId(null)}
+                style={{
+                  flex: 1,
+                  background: "var(--bg-3)",
+                  color: "var(--text-1)",
+                  padding: "7px 0",
+                  borderRadius: 4,
+                  fontSize: 12,
+                  border: "1px solid var(--border)",
+                }}
+              >
+                Cancel
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
